@@ -1,0 +1,30 @@
+{
+    "mcpServers": {
+        "zendhq": {
+            "command": "docker",
+            "args": [
+                "run",
+                "-i",
+                "--rm",
+                "--init",
+                "--add-host",
+                "jobu.local.dev:10.2.2.238",
+                "-e",
+                "ZENDHQ_URL",
+                "-e",
+                "ZENDHQ_USER",
+                "-e",
+                "ZENDHQ_TOKEN",
+                "-e",
+                "ZENDHQ_APP_URL",
+                "zendhq-mcp:latest"
+            ],
+            "env": {
+                "ZENDHQ_URL": "ws://jobu.local.dev:10091",
+                "ZENDHQ_APP_URL": "https://jobu.local.dev",
+                "ZENDHQ_USER": "admin",
+                "ZENDHQ_TOKEN": "zendphp"
+            }
+        }
+    }
+}
