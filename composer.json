@@ -3,7 +3,8 @@
     "description": "Synchronous PHP client for the JobU JSON-RPC Unix socket",
     "type": "library",
     "require": {
-        "php": "^8.5"
+        "php": "^8.5",
+        "ext-json": "*"
     },
     "autoload": {
         "psr-4": {
@@ -13,12 +14,7 @@
     "scripts": {
         "test": [
             "php tests/client.php",
-            "php tests/services.php",
-            "php tests/status.php",
-            "php tests/ui.php",
-            "php tests/ui-jobs.php",
-            "php tests/ui-runs.php",
-            "php tests/ui-security.php"
+            "php tests/services.php"
         ]
     }
 }

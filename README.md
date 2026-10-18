@@ -3,8 +3,20 @@
 Synchronous PHP 8.5+ client for the [JobU JSON-RPC protocol](protocol/README.md).
 Requires the PHP JSON extension and access to the daemon's Unix socket.
 
-Install with Composer (from this checkout: `composer install`, or as a path
-repository in another project), then:
+Install dependencies in this checkout with `composer install`. To use the
+library in another PHP project once changes reach the public GitHub mirror,
+register the mirror as a VCS repository and require the `master` branch:
+
+```sh
+composer config repositories.jobu vcs https://github.com/rukkirahu/jobu-json-rpc-client.git
+composer require jobu/json-rpc-client:dev-master
+```
+
+For stable installs, tag a release (for example `v1.0.0`) and require
+`jobu/json-rpc-client:^1.0` instead. Composer only discovers a package by
+name without the repository configuration if it is published to Packagist
+or another configured Composer registry. The consuming project must run
+PHP 8.5+ with `ext-json` enabled. Then:
 
 ```php
 <?php
@@ -96,36 +108,6 @@ are not supported by this synchronous client.
 Run the socket-level tests with `composer test` (requires the PHP `pcntl`
 extension), or run an individual test under `tests/` without installing dependencies.
 
-The read-only status page at `public/status.php` shows daemon information,
-queue states (first 20), and the last 24 hours of retained run statistics.
-Set `JOBU_SOCKET_PATH` in the PHP-FPM environment to the daemon's Unix socket
-path (default: `/opt/jobu/var/run/jobud.sock`, matching the bundled runtime).
-The PHP-FPM user must have
-permission to reach that socket. Protect this page with authentication if
-queue names or operational metrics should not be public.
-
-## Operator UI
-
-`public/index.php` is a server-rendered operator console. It shows queues,
-jobs, runs, attempts and retained output, secret metadata, and cron previews.
-Forms can create/update/suspend/resume/delete queues and jobs, move jobs,
-run jobs now, cancel runs, and set/rotate/delete secrets. List screens show
-one page at a time. Job schedule, payload and attribute inputs are JSON objects;
-the update form shows current values and submits only changes. Clearing the
-name sets it to null; removing an attribute key from the editor does not clear
-that stored attribute because JobU applies attribute patches. A job update
-uses its displayed revision.
-The create-job form loads all non-deleted queue pages into its queue dropdown;
-opening Jobs from a queue preselects that queue.
-Secret values are write-only and never prefilled; output is read only on an
-explicit channel request and may contain application secrets.
-The job editor displays stored payloads and attributes, which may themselves
-contain sensitive literals; do not expose the UI to untrusted users.
-
-Mutations require POST, a session CSRF token, and confirmation on deletes.
-Successful mutations use a 303 redirect; a lost reply is not retried
-automatically. **There is no login or authorization. Anyone who can reach this
-site can administer jobud through its socket. Restrict access to the site
-before making it reachable by untrusted users.** Keep the PHP-FPM socket
-permissions appropriately restricted; the web process gains full JobU
-administrative authority when granted socket access.
+The optional test/operator web UI lives in [`ui/`](ui/README.md); it is
+excluded from Git archive (Composer dist) packages. Composer source installs
+still clone the full repository.
