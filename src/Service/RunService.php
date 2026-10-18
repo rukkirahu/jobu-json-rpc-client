@@ -9,6 +9,7 @@ use Jobu\Dto\Request\RunList;
 use Jobu\Dto\Result\Cancellation;
 use Jobu\Dto\Result\Run;
 use Jobu\Dto\Result\RunPage;
+use Jobu\Exception\UnsupportedFeatureException;
 
 final readonly class RunService extends Service
 {
@@ -19,6 +20,10 @@ final readonly class RunService extends Service
 
     public function list(RunList $query = new RunList()): RunPage
     {
+        if ($query->usesStateSet() && $this->client->info()->api_version->minor < 5) {
+            throw new UnsupportedFeatureException('run.list.states requires JobU API 1.5 or newer');
+        }
+
         return $this->result('run.list', $query, RunPage::class);
     }
 

@@ -2,6 +2,7 @@
     "name": "jobu/json-rpc-client",
     "description": "Synchronous PHP client for the JobU JSON-RPC Unix socket",
     "type": "library",
+    "license": "MIT",
     "require": {
         "php": "^8.5",
         "ext-json": "*"

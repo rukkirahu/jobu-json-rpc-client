@@ -82,8 +82,9 @@ final class Client
     {
         $info = $this->call('system.info');
         if (!$info instanceof \stdClass ||
-            !isset($info->api_version->major, $info->capabilities) ||
+            !isset($info->api_version->major, $info->api_version->minor, $info->capabilities) ||
             !is_int($info->api_version->major) ||
+            !is_int($info->api_version->minor) || $info->api_version->minor < 0 ||
             !is_array($info->capabilities)) {
             $this->close();
             throw new ProtocolException('Invalid system.info result');

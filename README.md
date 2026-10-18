@@ -1,22 +1,25 @@
 # JobU PHP client
 
-Synchronous PHP 8.5+ client for the [JobU JSON-RPC protocol](protocol/README.md).
+Synchronous PHP 8.5+ client for the
+[JobU JSON-RPC protocol](https://github.com/evaikene/deferra/tree/65ea5f22504080c4431ba94bda1db2d2c8d7bdc7/docs/protocol).
+This client targets the protocol documented at Deferra commit
+`65ea5f22504080c4431ba94bda1db2d2c8d7bdc7` (API 1.5).
 Requires the PHP JSON extension and access to the daemon's Unix socket.
 
-Install dependencies in this checkout with `composer install`. To use the
-library in another PHP project once changes reach the public GitHub mirror,
-register the mirror as a VCS repository and require the `master` branch:
+Install from [Packagist](https://packagist.org/packages/jobu/json-rpc-client)
+in another PHP project:
 
 ```sh
-composer config repositories.jobu vcs https://github.com/rukkirahu/jobu-json-rpc-client.git
-composer require jobu/json-rpc-client:dev-master
+composer require jobu/json-rpc-client:^1.0
 ```
 
-For stable installs, tag a release (for example `v1.0.0`) and require
-`jobu/json-rpc-client:^1.0` instead. Composer only discovers a package by
-name without the repository configuration if it is published to Packagist
-or another configured Composer registry. The consuming project must run
-PHP 8.5+ with `ext-json` enabled. Then:
+Composer package versions come from Git release tags, not the daemon's API
+version. `v1.0.0` is the current release; the API 1.5 additions are prepared
+for `v1.1.0` and will reach Packagist after that tag is published. See
+[CHANGELOG.md](CHANGELOG.md) for release notes.
+
+Use `composer install` to install dependencies in this checkout. The consuming
+project must run PHP 8.5+ with `ext-json` enabled. Then:
 
 ```php
 <?php
@@ -85,9 +88,25 @@ Cursor-based continuations for runs, attempts, and statistics must contain
 only `cursor`; the library returns one page per call rather than fetching all
 pages. Use `info()` to check API major version and `supports()` for method
 availability before calling methods on older daemons. Service calls do not
-issue implicit discovery requests. Results keep unknown additive fields
-harmlessly ignored and enum values as strings; extensible payload templates
-and attributes remain JSON objects.
+issue implicit discovery requests except for the API 1.5 state-set filter.
+Results keep unknown additive fields harmlessly ignored and enum values as
+strings; extensible payload templates and attributes remain JSON objects.
+
+`RunList::from(['states' => ['failed', 'interrupted']])` selects either state
+on API 1.5+ daemons. This typed call checks `system.info` before sending the
+new field and throws `UnsupportedFeatureException` for older daemons; scalar
+`state`, unfiltered, and cursor-only queries retain their previous behavior.
+Raw `call()` does not perform feature checks. New HTTP job payloads accept
+GET, POST, PUT, PATCH, DELETE, or HEAD
+(case-insensitively); JobU stores uppercase methods, defaults omissions to
+GET, and rejects a body with HEAD. JobU applies these checks to newly admitted
+payloads, not unrelated edits to existing jobs.
+
+When Deferra updates its protocol, compare the pinned commit with upstream
+`docs/protocol`, update typed request/response DTOs and version-sensitive
+calls as needed, add socket-level regression tests, and then advance this
+commit reference. Additive protocol fields do not automatically appear in
+typed requests; `call()` remains available for newer methods and fields.
 
 `call($method, $params)` works with every documented method; pass associative
 arrays or `stdClass` for object params. The daemon validates method-specific
@@ -111,3 +130,5 @@ extension), or run an individual test under `tests/` without installing dependen
 The optional test/operator web UI lives in [`ui/`](ui/README.md); it is
 excluded from Git archive (Composer dist) packages. Composer source installs
 still clone the full repository.
+
+Licensed under the [MIT License](LICENSE).

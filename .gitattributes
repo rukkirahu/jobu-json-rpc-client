@@ -1,0 +1,6 @@
+/ui export-ignore
+/tests export-ignore
+/vendor export-ignore
+/.mcp.json export-ignore
+/composer.lock export-ignore
+/.gitattributes export-ignore

@@ -3,9 +3,11 @@
 declare(strict_types=1);
 
 use Jobu\Client;
+use Jobu\Dto\Request\RunList;
 use Jobu\Exception\ProtocolException;
 use Jobu\Exception\RpcException;
 use Jobu\Exception\TransportException;
+use Jobu\Exception\UnsupportedFeatureException;
 
 spl_autoload_register(static function (string $class): void {
     if (str_starts_with($class, 'Jobu\\')) {
@@ -80,6 +82,69 @@ function withServer(callable $server, callable $test): void
     }
     check(pcntl_wifexited($status) && pcntl_wexitstatus($status) === 0, 'test server succeeded');
 }
+
+withServer(
+    static function ($stream): void {
+        $info = request($stream);
+        check($info->method === 'system.info', 'discover version for state sets');
+        fwrite($stream, frame(json_encode([
+            'jsonrpc' => '2.0', 'id' => $info->id,
+            'result' => ['api_version' => ['major' => 1, 'minor' => 5], 'capabilities' => ['run.list']],
+        ], JSON_THROW_ON_ERROR)));
+
+        $list = request($stream);
+        check($list->method === 'run.list' &&
+            $list->params->states === ['failed', 'interrupted'] &&
+            $list->params->limit === 2, 'API 1.5 state-set request');
+        fwrite($stream, frame(json_encode([
+            'jsonrpc' => '2.0', 'id' => $list->id,
+            'result' => ['items' => [], 'next_cursor' => 'next'],
+        ], JSON_THROW_ON_ERROR)));
+
+        $cursor = request($stream);
+        check($cursor->method === 'run.list' && get_object_vars($cursor->params) ===
+            ['cursor' => 'next'], 'cursor must not rediscover or add a state filter');
+        fwrite($stream, frame(json_encode([
+            'jsonrpc' => '2.0', 'id' => $cursor->id,
+            'result' => ['items' => [], 'next_cursor' => null],
+        ], JSON_THROW_ON_ERROR)));
+    },
+    static function (Client $client): void {
+        $page = $client->runs()->list(RunList::from(['states' => ['failed', 'interrupted'], 'limit' => 2]));
+        check($page->next_cursor === 'next', 'state-set response');
+        check($client->runs()->list(RunList::from(['cursor' => $page->next_cursor]))->items === [],
+            'state-set continuation');
+    }
+);
+
+withServer(
+    static function ($stream): void {
+        $info = request($stream);
+        check($info->method === 'system.info', 'discover older daemon version');
+        fwrite($stream, frame(json_encode([
+            'jsonrpc' => '2.0', 'id' => $info->id,
+            'result' => ['api_version' => ['major' => 1, 'minor' => 4], 'capabilities' => ['run.list']],
+        ], JSON_THROW_ON_ERROR)));
+
+        $list = request($stream);
+        check($list->method === 'run.list' && $list->params->state === 'failed',
+            'rejected state set must not reach older daemon');
+        fwrite($stream, frame(json_encode([
+            'jsonrpc' => '2.0', 'id' => $list->id,
+            'result' => ['items' => [], 'next_cursor' => null],
+        ], JSON_THROW_ON_ERROR)));
+    },
+    static function (Client $client): void {
+        try {
+            $client->runs()->list(RunList::from(['states' => ['failed']]));
+            throw new RuntimeException('expected unsupported state set');
+        } catch (UnsupportedFeatureException $e) {
+            check(str_contains($e->getMessage(), 'API 1.5'), 'state set version error');
+        }
+        check($client->runs()->list(RunList::from(['state' => 'failed']))->items === [],
+            'scalar state on API 1.4');
+    }
+);
 
 withServer(
     static function ($stream): void {

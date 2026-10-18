@@ -39,7 +39,7 @@ $attempt = [
     'completed_at' => null, 'state' => 'pending', 'outcome' => null, 'result' => null,
 ];
 $metadata = ['name' => 'reports.token', 'created_at' => $time, 'updated_at' => $time];
-$statsJson = file_get_contents(__DIR__ . '/../protocol/examples/system-stats.result.json');
+$statsJson = file_get_contents(__DIR__ . '/fixtures/system-stats.result.json');
 if ($statsJson === false) {
     throw new RuntimeException('Cannot read statistics fixture');
 }
@@ -231,12 +231,24 @@ foreach ([
     static fn() => R\AttemptList::from(['cursor' => 'token', 'run_id' => $id]),
     static fn() => R\JobUpdate::from(['job_id' => $id, 'expected_revision' => 1]),
     static fn() => R\QueueCreate::from(['name' => 'reports', 'unexpected' => 'x']),
+    static fn() => R\RunList::from(['states' => []]),
+    static fn() => R\RunList::from(['states' => ['failed', 'failed']]),
+    static fn() => R\RunList::from(['states' => ['failed', 'bogus']]),
+    static fn() => R\RunList::from(['states' => [['failed']]]),
+    static fn() => R\RunList::from(['states' => ['failed'], 'state' => 'failed']),
+    static fn() => R\RunList::from(['states' => ['failed'], 'cursor' => 'token']),
+    static fn() => R\RunList::from(['states' => array_fill(0, 8, 'failed')]),
 ] as $invalid) {
     try {
         $invalid();
         throw new RuntimeException('Invalid request was accepted');
     } catch (InvalidArgumentException $e) {
     }
+}
+$states = R\RunList::from(['states' => ['failed', 'interrupted']]);
+if (!$states->usesStateSet() || $states->toWire()->states !== ['failed', 'interrupted'] ||
+    R\RunList::from(['state' => 'failed'])->usesStateSet()) {
+    throw new RuntimeException('Run state set was not encoded correctly');
 }
 
 $plainUpdate = R\JobUpdate::from(['job_id' => $id, 'expected_revision' => 1, 'priority' => 2]);
@@ -253,6 +265,11 @@ if (!$encoded->arguments[0] instanceof stdClass ||
     $encoded->arguments[0]->secret !== 'reports.token' ||
     !$encoded->environment instanceof stdClass) {
     throw new RuntimeException('Nested payload or empty object encoded incorrectly');
+}
+$httpPayload = R\Payload::http('http://127.0.0.1:8080/events')->with(method: 'pOsT');
+if ($httpPayload->toWire()->method !== 'pOsT' ||
+    property_exists(R\Payload::http('http://127.0.0.1:8080/events')->toWire(), 'method')) {
+    throw new RuntimeException('HTTP method input must reach daemon admission unchanged');
 }
 $futureQueue = D\Queue::from((object) array_replace($queue, ['state' => 'new_future_state']));
 if ($futureQueue->state !== 'new_future_state' || $futureQueue->deleted_at !== null) {
