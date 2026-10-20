@@ -15,7 +15,8 @@
     "scripts": {
         "test": [
             "php tests/client.php",
-            "php tests/services.php"
+            "php tests/services.php",
+            "php tests/queue-revisions.php"
         ]
     }
 }

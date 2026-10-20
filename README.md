@@ -1,9 +1,9 @@
 # JobU PHP client
 
 Synchronous PHP 8.5+ client for the
-[JobU JSON-RPC protocol](https://github.com/evaikene/deferra/tree/65ea5f22504080c4431ba94bda1db2d2c8d7bdc7/docs/protocol).
+[JobU JSON-RPC protocol](https://github.com/evaikene/deferra/tree/02e374408bd58f74abe6e54416a846c5b6de62dc/docs/protocol).
 This client targets the protocol documented at Deferra commit
-`65ea5f22504080c4431ba94bda1db2d2c8d7bdc7` (API 1.5).
+`02e374408bd58f74abe6e54416a846c5b6de62dc` (API 1.6).
 Requires the PHP JSON extension and access to the daemon's Unix socket.
 
 Install from [Packagist](https://packagist.org/packages/jobu/json-rpc-client)
@@ -13,10 +13,8 @@ in another PHP project:
 composer require jobu/json-rpc-client:^1.0
 ```
 
-Composer package versions come from Git release tags, not the daemon's API
-version. `v1.0.0` is the current release; the API 1.5 additions are prepared
-for `v1.1.0` and will reach Packagist after that tag is published. See
-[CHANGELOG.md](CHANGELOG.md) for release notes.
+Composer package versions come from Git tags, not the daemon's API version.
+Latest library version: `1.2.0`. See [CHANGELOG.md](CHANGELOG.md) for changes.
 
 Use `composer install` to install dependencies in this checkout. The consuming
 project must run PHP 8.5+ with `ext-json` enabled. Then:
@@ -59,6 +57,8 @@ use Jobu\Dto\Request\JobCreate;
 use Jobu\Dto\Request\JobUpdate;
 use Jobu\Dto\Request\Payload;
 use Jobu\Dto\Request\QueueList;
+use Jobu\Dto\Request\QueueGet;
+use Jobu\Dto\Request\QueueUpdate;
 use Jobu\Dto\Request\Schedule;
 
 $page = $client->queues()->list(QueueList::from(['limit' => 20]));
@@ -68,6 +68,15 @@ foreach ($page->items as $queue) {
 $nextPage = $page->next_after_id === null
     ? null
     : $client->queues()->list(QueueList::from(['limit' => 20, 'after_id' => $page->next_after_id]));
+
+if ($page->items !== []) {
+    $current = $client->queues()->get(QueueGet::byId($page->items[0]->id));
+    $current = $client->queues()->update(QueueUpdate::from([
+        'queue_id' => $current->id,
+        'expected_revision' => $current->revision,
+        'concurrency_limit' => 2,
+    ]));
+}
 
 $job = $client->jobs()->create(JobCreate::from([
     'queue_name' => 'reports',
@@ -87,10 +96,23 @@ it unchanged. Optional request fields are never serialized unless supplied.
 Cursor-based continuations for runs, attempts, and statistics must contain
 only `cursor`; the library returns one page per call rather than fetching all
 pages. Use `info()` to check API major version and `supports()` for method
-availability before calling methods on older daemons. Service calls do not
-issue implicit discovery requests except for the API 1.5 state-set filter.
+availability before calling methods on older daemons. Typed queue calls that
+return queue objects, including `queue.update`, require API 1.6 and issue
+`system.info` before sending the operation; `run.list.states` similarly checks
+for API 1.5. `queue.delete` and `queue.stats` retain older compatibility.
 Results keep unknown additive fields harmlessly ignored and enum values as
 strings; extensible payload templates and attributes remain JSON objects.
+
+API 1.6 queue results include a required, exact integer `revision`. Read the
+current queue by UUID before updating: keyed create replay returns its original
+revision-1 snapshot, not the live token. Updates require `expected_revision`
+from that read and at least one setting; a stale token yields
+`jobu.queue.revision_conflict`. Re-read and reconcile changes rather than
+automatically retrying. `QueueGet::byId($id)->with(include_deleted: true)`
+permits a retained deleted queue; a historical name may be ambiguous. Queue
+state transitions can also advance revisions, even when no configuration
+setting changes. The daemon requires storage format 5 for API 1.6 and does not
+automatically migrate older databases.
 
 `RunList::from(['states' => ['failed', 'interrupted']])` selects either state
 on API 1.5+ daemons. This typed call checks `system.info` before sending the

@@ -15,7 +15,7 @@ spl_autoload_register(static function (string $class): void {
 $id = '00112233-4455-6677-8899-aabbccddeeff';
 $time = '2026-01-01T00:00:00.000000Z';
 $queue = [
-    'id' => $id, 'name' => 'reports', 'state' => 'active', 'weight' => 1,
+    'id' => $id, 'revision' => 1, 'name' => 'reports', 'state' => 'active', 'weight' => 1,
     'concurrency_limit' => 2, 'recovery_policy' => 'fail_interrupted',
     'defaults' => (object) [], 'history_retention_seconds' => null,
     'runnable_wait_warning_ms' => 10000, 'created_at' => $time,
@@ -66,11 +66,17 @@ $cases = [
             ->with(history_retention_seconds: null))],
     ['queue.get', ['queue_name' => 'reports'], $queue, D\Queue::class,
         static fn(Client $c) => $c->queues()->get(R\QueueSelector::byName('reports'))],
+    ['queue.get', ['queue_name' => 'archived-reports', 'include_deleted' => true],
+        array_replace($queue, ['name' => 'archived-reports', 'state' => 'deleted', 'revision' => PHP_INT_MAX]),
+        D\Queue::class, static fn(Client $c) => $c->queues()->get(
+            R\QueueGet::byName('archived-reports')->with(include_deleted: true)
+        )],
     ['queue.list', [], ['items' => [$queue], 'next_after_id' => null], D\QueuePage::class,
         static fn(Client $c) => $c->queues()->list()],
-    ['queue.update', ['queue_name' => 'reports', 'history_retention_seconds' => null], $queue, D\Queue::class,
+    ['queue.update', ['queue_id' => $id, 'expected_revision' => 1, 'history_retention_seconds' => null],
+        $queue, D\Queue::class,
         static fn(Client $c) => $c->queues()->update(R\QueueUpdate::from([
-            'queue_name' => 'reports', 'history_retention_seconds' => null,
+            'queue_id' => $id, 'expected_revision' => 1, 'history_retention_seconds' => null,
         ]))],
     ['queue.suspend', ['queue_id' => $id], $queue, D\Queue::class,
         static fn(Client $c) => $c->queues()->suspend(R\QueueSelector::byId($id))],
@@ -149,8 +155,17 @@ $cases = [
         ]))],
 ];
 
-if (count($cases) !== 30) {
-    throw new RuntimeException('Expected all 30 methods');
+if (count($cases) !== 31) {
+    throw new RuntimeException('Expected all 30 methods and historical queue get');
+}
+$info16 = array_replace($info, ['api_version' => ['major' => 1, 'minor' => 6]]);
+$wireCases = [];
+foreach ($cases as $case) {
+    if (in_array($case[0], ['queue.create', 'queue.get', 'queue.list', 'queue.update',
+        'queue.suspend', 'queue.resume'], true)) {
+        $wireCases[] = ['system.info', [], $info16];
+    }
+    $wireCases[] = $case;
 }
 
 $path = sys_get_temp_dir() . '/jobu-services-' . bin2hex(random_bytes(8)) . '.sock';
@@ -171,7 +186,7 @@ if ($pid === 0) {
             throw new RuntimeException('Cannot accept test connection');
         }
         stream_set_timeout($stream, 5);
-        foreach ($cases as [$method, $params, $result]) {
+        foreach ($wireCases as [$method, $params, $result]) {
             $header = fgets($stream);
             if ($header === false || preg_match('/^Content-Length: ([0-9]+)\r\n$/D', $header, $match) !== 1 ||
                 fgets($stream) !== "\r\n") {
@@ -216,6 +231,10 @@ try {
             $method === 'attempt.output' && $value->bytes() !== "\0\xff") {
             throw new RuntimeException("Wrong nested result for $method");
         }
+        if ($method === 'queue.get' && $value->name === 'archived-reports' &&
+            $value->revision !== PHP_INT_MAX) {
+            throw new RuntimeException('Large queue revision lost precision');
+        }
     }
 } finally {
     $client->close();
@@ -230,6 +249,16 @@ foreach ([
     static fn() => R\QueueSelector::from(['queue_id' => $id, 'queue_name' => 'reports']),
     static fn() => R\AttemptList::from(['cursor' => 'token', 'run_id' => $id]),
     static fn() => R\JobUpdate::from(['job_id' => $id, 'expected_revision' => 1]),
+    static fn() => R\QueueUpdate::from(['queue_id' => $id, 'weight' => 2]),
+    static fn() => R\QueueUpdate::from(['queue_id' => $id, 'expected_revision' => 0, 'weight' => 2]),
+    static fn() => R\QueueUpdate::from(['queue_id' => $id, 'expected_revision' => -1, 'weight' => 2]),
+    static fn() => R\QueueUpdate::from(['queue_id' => $id, 'expected_revision' => '1', 'weight' => 2]),
+    static fn() => R\QueueUpdate::from(['queue_id' => $id, 'expected_revision' => 1.5, 'weight' => 2]),
+    static fn() => R\QueueUpdate::from(['queue_id' => $id, 'expected_revision' => true, 'weight' => 2]),
+    static fn() => R\QueueUpdate::from(['queue_id' => $id, 'expected_revision' => null, 'weight' => 2]),
+    static fn() => R\QueueUpdate::from(['queue_id' => $id, 'expected_revision' => 1]),
+    static fn() => R\QueueSelector::from(['queue_id' => $id, 'include_deleted' => true]),
+    static fn() => R\QueueGet::from(['queue_id' => $id, 'include_deleted' => null]),
     static fn() => R\QueueCreate::from(['name' => 'reports', 'unexpected' => 'x']),
     static fn() => R\RunList::from(['states' => []]),
     static fn() => R\RunList::from(['states' => ['failed', 'failed']]),
@@ -272,8 +301,25 @@ if ($httpPayload->toWire()->method !== 'pOsT' ||
     throw new RuntimeException('HTTP method input must reach daemon admission unchanged');
 }
 $futureQueue = D\Queue::from((object) array_replace($queue, ['state' => 'new_future_state']));
-if ($futureQueue->state !== 'new_future_state' || $futureQueue->deleted_at !== null) {
+if ($futureQueue->state !== 'new_future_state' || $futureQueue->revision !== 1 ||
+    $futureQueue->deleted_at !== null) {
     throw new RuntimeException('Additive result compatibility failed');
+}
+if (get_object_vars(R\QueueGet::byName('reports')->with(include_deleted: true)->toWire()) !==
+    ['queue_name' => 'reports', 'include_deleted' => true]) {
+    throw new RuntimeException('Historical queue get was not encoded correctly');
+}
+foreach ([0, -1, 1.5, '1', null] as $revision) {
+    try {
+        D\Queue::from((object) array_replace($queue, ['revision' => $revision]));
+        throw new RuntimeException('Invalid queue revision accepted');
+    } catch (Jobu\Exception\ProtocolException $e) {
+    }
+}
+try {
+    D\Queue::from((object) array_diff_key($queue, ['revision' => true]));
+    throw new RuntimeException('Missing queue revision accepted');
+} catch (Jobu\Exception\ProtocolException $e) {
 }
 if (get_object_vars(R\QueueStats::from(['cursor' => 'token'])->toWire()) !== ['cursor' => 'token'] ||
     get_object_vars(R\AttemptList::from(['cursor' => 'token'])->toWire()) !== ['cursor' => 'token']) {

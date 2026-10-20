@@ -10,6 +10,7 @@ final readonly class Queue extends WireDto
 {
     public function __construct(
         public string $id,
+        public int $revision,
         public string $name,
         public string $state,
         public int $weight,
@@ -22,5 +23,8 @@ final readonly class Queue extends WireDto
         public string $updated_at,
         public ?string $deleted_at,
     ) {
+        if ($revision < 1) {
+            throw new \Jobu\Exception\ProtocolException('Invalid queue revision');
+        }
     }
 }

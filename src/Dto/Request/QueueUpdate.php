@@ -9,17 +9,22 @@ use Jobu\Dto\RequestDto;
 final readonly class QueueUpdate extends RequestDto
 {
     protected const FIELDS = [
-        'queue_id' => 'string', 'queue_name' => 'string', 'name' => 'string',
+        'queue_id' => 'string', 'queue_name' => 'string', 'expected_revision' => 'int',
+        'name' => 'string',
         'weight' => 'int', 'concurrency_limit' => 'int', 'recovery_policy' => 'string',
         'defaults' => 'object', 'history_retention_seconds' => 'int?',
         'runnable_wait_warning_ms' => 'int',
     ];
     protected const SELECTOR = ['queue_id', 'queue_name'];
+    protected const REQUIRED = ['expected_revision'];
 
     public function __construct(array $fields = [])
     {
         parent::__construct($fields);
-        if (count($fields) < 2) {
+        if ($fields['expected_revision'] < 1) {
+            throw new \InvalidArgumentException('Queue revision must be positive');
+        }
+        if (count($fields) < 3) {
             throw new \InvalidArgumentException('Queue update needs at least one setting');
         }
     }
